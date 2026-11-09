@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="te">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0c1f42">
+<title>Tap-Counter</title>
+<style>
+  :root {
+    --bg: #f6f4ee; --card: #ffffff; --ink: #1a1a24; --muted: #6b6f7d; --line: #e3e0d6;
+    --brand: #0c1f42; --gold: #e6aa14; --ok: #1f8a4c; --bad: #c0392b; --warn: #b9770e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11131a; --card: #1b1e28; --ink: #f1f1f4; --muted: #9aa0ae; --line: #2b2f3c;
+            --brand: #0c1f42; --gold: #f0b62a; --ok: #3fbf74; --bad: #ff6b5b; --warn: #f2b43c; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.4 system-ui, -apple-system, "Segoe UI", "Noto Sans Telugu", sans-serif; }
+  header { background: var(--brand); color: #fff; padding: 14px 16px 18px; position: sticky; top: 0; z-index: 5; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #shopName { font-weight: 700; font-size: 18px; background: none; border: 0; color: #fff; width: 60%; padding: 0; }
+  #today { color: #b9c6de; font-size: 14px; }
+  .total { margin-top: 8px; display: flex; align-items: baseline; gap: 10px; }
+  .total b { font-size: 40px; color: var(--gold); }
+  .total span { color: #b9c6de; }
+  main { padding: 16px; max-width: 640px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .item { position: relative; background: var(--card); border: 2px solid var(--line); border-radius: 18px;
+          padding: 30px 12px 14px; text-align: center; cursor: pointer; user-select: none; min-height: 112px;
+          transition: transform .08s, border-color .15s; }
+  .item:active { transform: scale(.96); }
+  .item.flash { border-color: var(--gold); }
+  .item .name { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+  .item .price { color: var(--muted); font-size: 14px; }
+  .item .count { position: absolute; top: 8px; right: 10px; background: var(--brand); color: #fff;
+                 border-radius: 999px; min-width: 30px; padding: 2px 8px; font-weight: 700; }
+  .bar { display: flex; gap: 10px; margin: 14px 0; }
+  button { font: inherit; border-radius: 14px; border: 2px solid var(--line); background: var(--card); color: var(--ink);
+           padding: 12px 14px; cursor: pointer; flex: 1; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+  button.gold { background: var(--gold); border-color: var(--gold); color: #1a1a24; font-weight: 700; }
+  button:disabled { opacity: .45; }
+  section.card { background: var(--card); border: 2px solid var(--line); border-radius: 18px; padding: 16px; margin-top: 16px; }
+  h2 { margin: 0 0 10px; font-size: 18px; }
+  label { display: block; color: var(--muted); font-size: 14px; margin: 10px 0 4px; }
+  input { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 2px solid var(--line);
+          background: var(--bg); color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  td { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; }
+  .verdict { margin-top: 12px; padding: 12px; border-radius: 12px; font-weight: 700; }
+  .verdict.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .verdict.bad { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  .verdict.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+  .muted { color: var(--muted); font-size: 14px; }
+  .edit-row { display: grid; grid-template-columns: 1fr 90px 44px; gap: 8px; margin-bottom: 8px; }
+  .edit-row button { padding: 0; }
+  details summary { cursor: pointer; font-weight: 700; font-size: 18px; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+           padding: 10px 16px; border-radius: 999px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <input id="shopName" aria-label="Shop name">
+    <span id="today"></span>
+  </div>
+  <div class="total"><b id="total">₹0</b><span>ఈరోజు మొత్తం · Today</span></div>
+</header>
+
+<main>
+  <div class="grid" id="grid"></div>
+
+  <div class="bar">
+    <button id="undo">↩ వెనక్కి · Undo</button>
+  </div>
+
+  <section class="card">
+    <h2>🌙 రాత్రి లెక్క · Night summary</h2>
+    <label for="upi">UPI లో వచ్చింది · UPI received (₹)</label>
+    <input id="upi" type="number" inputmode="numeric" min="0" placeholder="0">
+    <label for="cash">చేతిలో క్యాష్ · Cash in hand (₹)</label>
+    <input id="cash" type="number" inputmode="numeric" min="0" placeholder="0">
+    <table id="sumTable" style="margin-top:14px"></table>
+    <div id="verdict"></div>
+    <div class="bar">
+      <button class="gold" id="share">వాట్సాప్‌లో పంపు · Share</button>
+      <button class="primary" id="close">రోజు ముగించు · Close day</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>📅 గత రోజులు · Past days</summary>
+      <div id="history" style="margin-top:10px"></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>⚙️ వస్తువులు మార్చు · Edit items</summary>
+      <p class="muted">Name and price (₹). Changes apply from the next tap.</p>
+      <div id="editList"></div>
+      <div class="bar">
+        <button id="addItem">+ Add item</button>
+        <button class="primary" id="saveItems">Save</button>
+      </div>
+    </details>
+  </section>
+
+  <p class="muted" style="text-align:center;margin:20px 0">Tap-Counter v0.1 · data stays on this phone</p>
+</main>
+<div id="toast"></div>
+
+<script>
+const KEY = 'tapcounter-v1';
+const DEFAULT = {
+  shop: 'My Tea Stall',
+  items: [
+    { name: 'టీ Tea', price: 10 }, { name: 'కాఫీ Coffee', price: 15 },
+    { name: 'సమోసా Samosa', price: 10 }, { name: 'బిస్కెట్ Biscuit', price: 5 },
+    { name: 'పాలు Milk', price: 20 }, { name: 'నీళ్ళు Water', price: 20 }
+  ],
+  day: null, counts: {}, taps: [], history: []
+};
+
+let memory = null;  // fallback when localStorage is blocked
+function load() {
+  try { const s = localStorage.getItem(KEY); if (s) return JSON.parse(s); } catch (e) {}
+  return memory || structuredClone(DEFAULT);
+}
+function save() {
+  memory = state;
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+const todayStr = () => new Date().toLocaleDateString('en-CA');  // YYYY-MM-DD
+let state = load();
+if (!state.day) state.day = todayStr();
+
+const $ = id => document.getElementById(id);
+const rupees = n => '₹' + n.toLocaleString('en-IN');
+const priceOf = name => (state.items.find(i => i.name === name) || {}).price;
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 1400);
+}
+
+// Spec 1-2: a tap adds 1; unknown items are rejected
+function tap(name) {
+  if (priceOf(name) === undefined) { toast('Unknown item'); return; }
+  state.counts[name] = (state.counts[name] || 0) + 1;
+  state.taps.push(name);
+  save(); render();
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+function undo() {
+  const name = state.taps.pop();
+  if (!name) return;
+  state.counts[name] -= 1;
+  if (state.counts[name] <= 0) delete state.counts[name];
+  save(); render(); toast('↩ ' + name + ' −1');
+}
+
+// Spec 3: expected cash = sum of count x price
+function expected() {
+  return Object.entries(state.counts).reduce((s, [n, c]) => s + c * (priceOf(n) || 0), 0);
+}
+
+// Spec 4-5: night summary and gap verdict
+function summary() {
+  const upi = Math.max(0, Number($('upi').value) || 0);
+  const cash = Math.max(0, Number($('cash').value) || 0);
+  const exp = expected(), rec = upi + cash, gap = exp - rec;
+  let verdict;
+  if (gap > 0) verdict = { cls: 'bad', te: 'డబ్బు తక్కువ ఉంది! సిబ్బందితో చెక్ చేయండి.', en: `ALERT: ${rupees(gap)} missing. Check with staff.` };
+  else if (gap < 0) verdict = { cls: 'warn', te: 'ట్యాప్ చేయని అమ్మకాలు ఉన్నాయి.', en: `Note: ${rupees(-gap)} more than taps. Some sales were not tapped.` };
+  else verdict = { cls: 'ok', te: 'అంతా సరిగ్గా ఉంది.', en: 'All good.' };
+  return { upi, cash, exp, rec, gap, verdict };
+}
+
+function summaryText(s) {
+  const lines = [`${state.shop}: ${state.day}`];
+  state.items.forEach(i => {
+    const c = state.counts[i.name] || 0;
+    if (c) lines.push(`${i.name}: ${c} × ₹${i.price} = ${rupees(c * i.price)}`);
+  });
+  lines.push(`రావాల్సింది (Expected): ${rupees(s.exp)}`);
+  lines.push(`వచ్చింది (Received): ${rupees(s.rec)}  [UPI ${rupees(s.upi)} + Cash ${rupees(s.cash)}]`);
+  lines.push(`తేడా (Gap): ${rupees(s.gap)}`);
+  lines.push(`${s.verdict.te} ${s.verdict.en}`);
+  return lines.join('\n');
+}
+
+function render() {
+  $('shopName').value = state.shop;
+  $('today').textContent = state.day;
+  $('total').textContent = rupees(expected());
+
+  const grid = $('grid'); grid.innerHTML = '';
+  state.items.forEach(i => {
+    const el = document.createElement('div');
+    el.className = 'item'; el.setAttribute('role', 'button');
+    const c = state.counts[i.name] || 0;
+    el.innerHTML = `${c ? `<span class="count">${c}</span>` : ''}<div class="name"></div><div class="price">₹${i.price}</div>`;
+    el.querySelector('.name').textContent = i.name;
+    el.onclick = () => { tap(i.name); };
+    grid.appendChild(el);
+  });
+  $('undo').disabled = !state.taps.length;
+
+  const s = summary();
+  $('sumTable').innerHTML = `
+    <tr><td>రావాల్సింది · Expected</td><td>${rupees(s.exp)}</td></tr>
+    <tr><td>వచ్చింది · Received</td><td>${rupees(s.rec)}</td></tr>
+    <tr><td><b>తేడా · Gap</b></td><td><b>${rupees(s.gap)}</b></td></tr>`;
+  const touched = $('upi').value !== '' || $('cash').value !== '';
+  $('verdict').innerHTML = touched ? `<div class="verdict ${s.verdict.cls}">${s.verdict.te}<br>${s.verdict.en}</div>` : '';
+
+  $('history').innerHTML = state.history.length
+    ? '<table>' + state.history.slice().reverse().map(h =>
+        `<tr><td>${h.day}</td><td>${rupees(h.exp)} / ${rupees(h.rec)} · gap ${rupees(h.gap)}</td></tr>`).join('') + '</table>'
+    : '<p class="muted">No closed days yet.</p>';
+}
+
+function renderEdit() {
+  const list = $('editList'); list.innerHTML = '';
+  state.items.forEach(i => addEditRow(i.name, i.price));
+}
+function addEditRow(name = '', price = '') {
+  const row = document.createElement('div'); row.className = 'edit-row';
+  row.innerHTML = `<input class="n" placeholder="Item name"><input class="p" type="number" inputmode="numeric" min="1" placeholder="₹"><button aria-label="Remove">✕</button>`;
+  row.querySelector('.n').value = name; row.querySelector('.p').value = price;
+  row.querySelector('button').onclick = () => row.remove();
+  $('editList').appendChild(row);
+}
+function saveItems() {
+  const items = [];
+  for (const row of $('editList').children) {
+    const name = row.querySelector('.n').value.trim();
+    const price = Math.round(Number(row.querySelector('.p').value));
+    if (!name && !row.querySelector('.p').value) continue;
+    if (!name || !(price >= 1)) { toast('Each item needs a name and a price of at least ₹1'); return; }
+    if (items.some(i => i.name === name)) { toast('Duplicate item: ' + name); return; }
+    items.push({ name, price });
+  }
+  if (!items.length) { toast('Add at least one item'); return; }
+  state.items = items; save(); render(); renderEdit(); toast('Saved ✓');
+}
+
+function closeDay() {
+  if (!state.taps.length && !confirm('No taps today. Close the day anyway?')) return;
+  const s = summary();
+  if (!confirm(`Close ${state.day}? Expected ${rupees(s.exp)}, received ${rupees(s.rec)}.`)) return;
+  state.history.push({ day: state.day, exp: s.exp, rec: s.rec, gap: s.gap, counts: { ...state.counts } });
+  state.history = state.history.slice(-60);
+  state.counts = {}; state.taps = []; state.day = todayStr();
+  $('upi').value = ''; $('cash').value = '';
+  save(); render(); toast('Day closed ✓');
+}
+
+$('undo').onclick = undo;
+$('upi').oninput = $('cash').oninput = render;
+$('share').onclick = () => window.open('https://wa.me/?text=' + encodeURIComponent(summaryText(summary())), '_blank');
+$('close').onclick = closeDay;
+$('addItem').onclick = () => addEditRow();
+$('saveItems').onclick = saveItems;
+$('shopName').onchange = e => { state.shop = e.target.value.trim() || 'My Shop'; save(); render(); };
+
+save(); render(); renderEdit();
+</script>
+</body>
+</html>
