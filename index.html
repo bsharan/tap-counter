@@ -60,6 +60,9 @@
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
            padding: 10px 16px; border-radius: 999px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #toast.show { opacity: .92; }
+  #sync { font-size: 13px; color: #b9c6de; margin-left: auto; }
+  .check { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: 16px; }
+  .check input { width: 22px; height: 22px; }
 </style>
 </head>
 <body>
@@ -68,7 +71,7 @@
     <input id="shopName" aria-label="Shop name">
     <span id="today"></span>
   </div>
-  <div class="total"><b id="total">₹0</b><span>ఈరోజు మొత్తం · Today</span></div>
+  <div class="total"><b id="total">₹0</b><span>ఈరోజు మొత్తం · Today</span><span id="sync"></span></div>
 </header>
 
 <main>
@@ -101,6 +104,20 @@
 
   <section class="card">
     <details>
+      <summary>☁️ కుటుంబం చూడొచ్చు · Family view</summary>
+      <p class="muted">Turn on to send each tap to the cloud, so your family can see today's sales from anywhere.
+        Taps made without internet wait on the phone and go when the signal comes back.</p>
+      <label class="check"><input type="checkbox" id="cloudOn"> Send sales to the cloud</label>
+      <label for="shopId">Shop ID (keep it private: anyone with it can see your sales)</label>
+      <input id="shopId" autocomplete="off">
+      <div class="bar">
+        <button class="gold" id="familyLink">Send family link</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
       <summary>⚙️ వస్తువులు మార్చు · Edit items</summary>
       <p class="muted">Name and price (₹). Changes apply from the next tap.</p>
       <div id="editList"></div>
@@ -111,12 +128,13 @@
     </details>
   </section>
 
-  <p class="muted" style="text-align:center;margin:20px 0">Tap-Counter v0.1 · data stays on this phone</p>
+  <p class="muted" style="text-align:center;margin:20px 0" id="footer"></p>
 </main>
 <div id="toast"></div>
 
 <script>
 const KEY = 'tapcounter-v1';
+const API = 'https://f0g39bgoe5.execute-api.us-east-1.amazonaws.com';  // Tap-Counter Cloud (AWS)
 const DEFAULT = {
   shop: 'My Tea Stall',
   items: [
@@ -138,8 +156,18 @@ function save() {
 }
 
 const todayStr = () => new Date().toLocaleDateString('en-CA');  // YYYY-MM-DD
+function newId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  return Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+}
+// Local phone time as YYYY-MM-DDTHH:MM:SS (India phones are on IST; the server reads it as IST)
+const nowStamp = () => new Date().toLocaleString('sv-SE').replace(' ', 'T');
+
 let state = load();
 if (!state.day) state.day = todayStr();
+// v0.2: cloud sync. outbox = changes waiting for the internet, sent in order.
+if (!state.cloud) state.cloud = { on: false, shopId: 'shop-' + newId().slice(0, 8) };
+if (!state.outbox) state.outbox = [];
 
 const $ = id => document.getElementById(id);
 const rupees = n => '₹' + n.toLocaleString('en-IN');
@@ -152,18 +180,54 @@ function toast(msg) {
 
 // Spec 1-2: a tap adds 1; unknown items are rejected
 function tap(name) {
-  if (priceOf(name) === undefined) { toast('Unknown item'); return; }
+  const price = priceOf(name);
+  if (price === undefined) { toast('Unknown item'); return; }
   state.counts[name] = (state.counts[name] || 0) + 1;
-  state.taps.push(name);
-  save(); render();
+  if (state.cloud.on) {
+    // saleId + ts form the cloud key, so a retried send can never count twice
+    const t = { name, saleId: newId(), ts: nowStamp() };
+    state.taps.push(t);
+    state.outbox.push({ op: 'add', saleId: t.saleId, ts: t.ts, item: name, price });
+  } else {
+    state.taps.push(name);
+  }
+  save(); render(); flush();
   if (navigator.vibrate) navigator.vibrate(30);
 }
 function undo() {
-  const name = state.taps.pop();
-  if (!name) return;
+  const t = state.taps.pop();
+  if (!t) return;
+  const name = typeof t === 'string' ? t : t.name;  // v0.1 taps are plain names
   state.counts[name] -= 1;
   if (state.counts[name] <= 0) delete state.counts[name];
-  save(); render(); toast('↩ ' + name + ' −1');
+  if (t.saleId) {
+    const waiting = state.outbox.findIndex(o => o.op === 'add' && o.saleId === t.saleId);
+    if (waiting >= 0) state.outbox.splice(waiting, 1);  // never sent: just drop it
+    else state.outbox.push({ op: 'del', saleId: t.saleId, ts: t.ts });
+  }
+  save(); render(); flush(); toast('↩ ' + name + ' −1');
+}
+
+// Send waiting changes in order; stop at the first network failure and retry later.
+let flushing = false;
+async function flush() {
+  if (flushing || !state.cloud.on || !state.outbox.length) return;
+  flushing = true;
+  try {
+    while (state.outbox.length) {
+      const o = state.outbox[0];
+      const shop = encodeURIComponent(state.cloud.shopId);
+      const res = o.op === 'add'
+        ? await fetch(API + '/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopId: state.cloud.shopId, item: o.item, price: o.price, ts: o.ts, saleId: o.saleId }) })
+        : await fetch(`${API}/shops/${shop}/sales/${o.saleId}?ts=${encodeURIComponent(o.ts)}`, { method: 'DELETE' });
+      if (res.status >= 500) break;      // server trouble: keep it, try again later
+      state.outbox.shift();              // 2xx done; 4xx can never succeed, so don't block the queue
+      save();
+    }
+  } catch (e) { /* offline: try again later */ }
+  flushing = false;
+  render();
 }
 
 // Spec 3: expected cash = sum of count x price
@@ -212,6 +276,8 @@ function render() {
     grid.appendChild(el);
   });
   $('undo').disabled = !state.taps.length;
+  $('sync').textContent = !state.cloud.on ? '' : state.outbox.length ? `☁ ${state.outbox.length} waiting` : '☁ synced';
+  $('footer').textContent = 'Tap-Counter v0.2 · ' + (state.cloud.on ? 'family view on' : 'data stays on this phone');
 
   const s = summary();
   $('sumTable').innerHTML = `
@@ -252,12 +318,21 @@ function saveItems() {
   state.items = items; save(); render(); renderEdit(); toast('Saved ✓');
 }
 
+function familyUrl() {
+  return new URL('family.html?shop=' + encodeURIComponent(state.cloud.shopId), location.href).href;
+}
+
 function closeDay() {
   if (!state.taps.length && !confirm('No taps today. Close the day anyway?')) return;
   const s = summary();
   if (!confirm(`Close ${state.day}? Expected ${rupees(s.exp)}, received ${rupees(s.rec)}.`)) return;
   state.history.push({ day: state.day, exp: s.exp, rec: s.rec, gap: s.gap, counts: { ...state.counts } });
   state.history = state.history.slice(-60);
+  if (state.cloud.on && navigator.onLine) {
+    // Close in the cloud too (if offline, the 10 PM auto-close covers it)
+    fetch(`${API}/shops/${encodeURIComponent(state.cloud.shopId)}/close`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ upi: s.upi, cash: s.cash }) }).catch(() => {});
+  }
   state.counts = {}; state.taps = []; state.day = todayStr();
   $('upi').value = ''; $('cash').value = '';
   save(); render(); toast('Day closed ✓');
@@ -270,8 +345,20 @@ $('close').onclick = closeDay;
 $('addItem').onclick = () => addEditRow();
 $('saveItems').onclick = saveItems;
 $('shopName').onchange = e => { state.shop = e.target.value.trim() || 'My Shop'; save(); render(); };
+$('cloudOn').onchange = e => { state.cloud.on = e.target.checked; save(); render(); flush(); };
+$('shopId').onchange = e => {
+  const v = e.target.value.trim();
+  if (!/^[A-Za-z0-9-]{4,40}$/.test(v)) { toast('Shop ID: 4-40 letters, digits or dashes'); e.target.value = state.cloud.shopId; return; }
+  state.cloud.shopId = v; save();
+};
+$('familyLink').onclick = () => window.open('https://wa.me/?text=' +
+  encodeURIComponent(`${state.shop}: today's sales, live\n${familyUrl()}`), '_blank');
+$('cloudOn').checked = state.cloud.on;
+$('shopId').value = state.cloud.shopId;
+window.addEventListener('online', flush);
+setInterval(flush, 15000);
 
-save(); render(); renderEdit();
+save(); render(); renderEdit(); flush();
 </script>
 </body>
 </html>

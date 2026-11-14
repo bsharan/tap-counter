@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="te">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0c1f42">
+<title>Tap-Counter: Family view</title>
+<style>
+  :root { --bg: #f6f4ee; --card: #ffffff; --ink: #1a1a24; --muted: #6b6f7d; --line: #e3e0d6; --brand: #0c1f42; --gold: #e6aa14; --bad: #c0392b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11131a; --card: #1b1e28; --ink: #f1f1f4; --muted: #9aa0ae; --line: #2b2f3c; --gold: #f0b62a; --bad: #ff6b5b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.4 system-ui, -apple-system, "Segoe UI", "Noto Sans Telugu", sans-serif; }
+  header { background: var(--brand); color: #fff; padding: 16px; }
+  header .label { color: #b9c6de; font-size: 14px; }
+  header b { display: block; font-size: 44px; color: var(--gold); margin-top: 4px; }
+  main { padding: 16px; max-width: 640px; margin: 0 auto; }
+  section { background: var(--card); border: 2px solid var(--line); border-radius: 18px; padding: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 17px; }
+  td { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  td:last-child { text-align: right; font-weight: 700; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .error { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <div class="label" id="title">ఈరోజు అమ్మకాలు · Today's sales</div>
+  <b id="total">₹0</b>
+  <div class="label" id="date"></div>
+</header>
+<main>
+  <section>
+    <table id="items"></table>
+    <p class="muted" id="status">Loading…</p>
+  </section>
+  <p class="muted" style="text-align:center;margin:20px 0">Tap-Counter · Bediga Labs · refreshes every 30 seconds</p>
+</main>
+<script>
+const API = 'https://f0g39bgoe5.execute-api.us-east-1.amazonaws.com';
+const shop = new URLSearchParams(location.search).get('shop');
+const $ = id => document.getElementById(id);
+const rupees = n => '₹' + Number(n).toLocaleString('en-IN');
+
+async function refresh() {
+  if (!shop) { $('status').innerHTML = '<span class="error">No shop in this link. Ask for the link again.</span>'; return; }
+  try {
+    const res = await fetch(`${API}/shops/${encodeURIComponent(shop)}/today`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    $('total').textContent = rupees(d.expectedCash);
+    $('date').textContent = d.date;
+    const rows = Object.entries(d.counts).sort((a, b) => b[1] - a[1]);
+    const table = $('items'); table.innerHTML = '';
+    rows.forEach(([item, count]) => {
+      const tr = table.insertRow();
+      tr.insertCell().textContent = item;   // textContent: item names come from the shop's phone
+      tr.insertCell().textContent = '× ' + count;
+    });
+    $('status').textContent = (rows.length ? '' : 'No sales yet today. ') +
+      'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    $('status').innerHTML = '<span class="error">Can\'t reach the shop data right now. Trying again…</span>';
+  }
+}
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>
